@@ -1,0 +1,63 @@
+name: Daily JSON backup (1 AM Eastern, DST-safe)
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # Runs at the top of every hour (UTC)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run only at 1:00 AM America/New_York
+        run: |
+          set -euo pipefail
+
+          HOUR_ET=$(TZ=America/New_York date +"%H")
+          MIN_ET=$(TZ=America/New_York date +"%M")
+
+          if [ "$HOUR_ET" != "01" ] || [ "$MIN_ET" != "00" ]; then
+            echo "Not 1:00 AM ET (current ET time: $(TZ=America/New_York date)). Skipping."
+            exit 0
+          fi
+
+          DATE_ET=$(TZ=America/New_York date +"%Y_%m_%d")
+
+          mkdir -p backups
+
+          echo "Downloading files for ${DATE_ET}..."
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o "backups/amex_${DATE_ET}.json" \
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/refs/heads/main/amex/amex_full_tickers.json"
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o "backups/nasdaq_${DATE_ET}.json" \
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/refs/heads/main/nasdaq/nasdaq_full_tickers.json"
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o "backups/nyse_${DATE_ET}.json" \
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/refs/heads/main/nyse/nyse_full_tickers.json"
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add backups/
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Daily backup: $(TZ=America/New_York date +"%Y_%m_%d")"
+          git push
