@@ -1,0 +1,60 @@
+name: Daily JSON backup (date-stamped)
+
+on:
+  schedule:
+    # GitHub Actions cron is UTC.
+    # Choose ONE of these:
+    # - "0 6 * * *" ≈ 1:00 AM ET during EST (winter)
+    # - "0 5 * * *" ≈ 1:00 AM ET during EDT (summer)
+    #
+    # If you want it to always be 1:00 AM *Eastern* year-round,
+    # see the "DST-safe" version below.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download JSON files with date-stamped names (America/New_York)
+        run: |
+          set -euo pipefail
+
+          # Use Eastern date for the filename
+          DATE_ET=$(TZ=America/New_York date +"%Y_%m_%d")
+
+          mkdir -p backups
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o "backups/amex_${DATE_ET}.json" \
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/refs/heads/main/amex/amex_full_tickers.json"
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o "backups/nasdaq_${DATE_ET}.json" \
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/refs/heads/main/nasdaq/nasdaq_full_tickers.json"
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o "backups/nyse_${DATE_ET}.json" \
+            "https://raw.githubusercontent.com/rreichel3/US-Stock-Symbols/refs/heads/main/nyse/nyse_full_tickers.json"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add backups/
+
+          # Avoid failing if nothing changed
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Daily backup: ${DATE_ET}"
+          git push
